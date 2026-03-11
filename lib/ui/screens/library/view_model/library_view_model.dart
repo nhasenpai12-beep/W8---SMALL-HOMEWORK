@@ -3,19 +3,37 @@ import '../../../../data/repositories/songs/song_repository.dart';
 import '../../../states/player_state.dart';
 import '../../../../model/songs/song.dart';
 
+sealed class AsyncValue<T> {
+  const AsyncValue();
+}
+
+class AsyncLoading<T> extends AsyncValue<T> {
+  const AsyncLoading();
+}
+
+class AsyncData<T> extends AsyncValue<T> {
+  final T value;
+  const AsyncData(this.value);
+}
+
+class AsyncError<T> extends AsyncValue<T> {
+  final Object error;
+  const AsyncError(this.error);
+}
+
 class LibraryViewModel extends ChangeNotifier {
   final SongRepository songRepository;
   final PlayerState playerState;
-  List<Song>? _songs;
+
+  // Starts as loading; transitions to AsyncData or AsyncError after fetch.
+  AsyncValue<List<Song>> _songsAsync = const AsyncLoading();
 
   LibraryViewModel({required this.songRepository, required this.playerState}) {
     playerState.addListener(notifyListeners);
-
-    // init
     _init();
   }
 
-  List<Song> get songs => _songs == null ? [] : _songs!;
+  AsyncValue<List<Song>> get songsAsync => _songsAsync;
 
   @override
   void dispose() {
@@ -24,12 +42,21 @@ class LibraryViewModel extends ChangeNotifier {
   }
 
   void _init() async {
-    // 1 - Fetch songs
-    _songs = await songRepository.fetchSongs();
+    _songsAsync = const AsyncLoading();
+    notifyListeners();
 
-    // 2 - notify listeners
+    try {
+      final songs = await songRepository.fetchSongs();
+      _songsAsync = AsyncData(songs);
+    } catch (e) {
+      _songsAsync = AsyncError(e);
+    }
+
     notifyListeners();
   }
+
+  /// Retry fetching songs (useful from the error state).
+  void retry() => _init();
 
   bool isSongPlaying(Song song) => playerState.currentSong == song;
 
